@@ -1157,6 +1157,7 @@ static void mriBindingExecute() {
     rb_enc_set_default_external(rb_enc_from_encoding(rb_utf8_encoding()));
 #else
     ruby_init();
+    rb_require("zlib");
     rb_eval_string("$KCODE='U'");
 #ifdef __WIN32__
     if (!conf.winConsole) {
@@ -1204,6 +1205,7 @@ static void mriBindingExecute() {
     BacktraceData btData;
     
     mriBindingInit();
+    rb_require("zlib");
     
     std::string &customScript = conf.customScript;
     if (!customScript.empty())

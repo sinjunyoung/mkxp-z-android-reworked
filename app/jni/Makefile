@@ -128,7 +128,8 @@ RUBY_CONFIGURE_ARGS := \
 	--disable-rubygems \
 	--with-static-linked-ext \
 	--with-out-ext=readline,dbm,gdbm,win32,win32ole,fiddle \
-	--without-gmp
+	--without-gmp \
+        --with-zlib-dir=/home/cdh5/android-sdk/ndk/23.2.8568313/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr
 
 CONFIGURE := $(CONFIGURE_ENV) ./configure $(CONFIGURE_ARGS)
 CMAKE     := $(CONFIGURE_ENV) cmake .. $(CMAKE_ARGS)
