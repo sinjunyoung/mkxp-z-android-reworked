@@ -375,7 +375,7 @@ int main(int argc, char *argv[])
 	if (conf.winResizable)
 		winFlags |= SDL_WINDOW_RESIZABLE;
 
-	if (conf.fullscreen)
+//	if (conf.fullscreen)
 		winFlags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
 
 #ifdef GLES2_HEADER
