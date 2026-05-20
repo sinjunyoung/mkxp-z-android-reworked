@@ -140,6 +140,7 @@ if (!config.gameFolder.empty()) {
     std::string &gf = config.gameFolder;
     if (gf.size() >= 4 && gf.substr(gf.size() - 4) == ".zip") {
         fileSystem.addPath(gf.c_str(), nullptr, false);
+	Debug() << "ZIP mounted:" << gf.c_str();
 
         /* Read Game.ini from inside the ZIP via PhysFS */
         std::string iniFileName = config.execName + ".ini";
@@ -193,7 +194,8 @@ if (pp) {
 }
 
 
-fileSystem.addPath(".");
+if (config.gameFolder.empty() || config.gameFolder.substr(config.gameFolder.size()-4) != ".zip")
+    fileSystem.addPath(".");
 
 		for (size_t i = 0; i < config.rtps.size(); ++i)
 			fileSystem.addPath(config.rtps[i].c_str());

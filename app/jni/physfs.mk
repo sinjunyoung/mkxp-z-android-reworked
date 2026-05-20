@@ -38,4 +38,6 @@ LOCAL_SRC_FILES := \
 	$(LOCAL_PATH)/src/physfs_platform_unix.c \
 	$(LOCAL_PATH)/src/physfs_platform_android.c
 
+LOCAL_STATIC_LIBRARIES := libiconv
+
 include $(BUILD_STATIC_LIBRARY)

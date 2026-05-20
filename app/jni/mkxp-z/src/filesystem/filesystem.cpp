@@ -39,10 +39,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <vector>
-
-#ifdef __APPLE__
 #include <iconv.h>
-#endif
 
 #ifdef __WIN32__
 #include <direct.h>
@@ -294,7 +291,8 @@ static void initReadOps(PHYSFS_File *handle, SDL_RWops &ops, bool freeOnClose) {
 
 static void strTolower(std::string &str) {
   for (size_t i = 0; i < str.size(); ++i)
-    str[i] = tolower(str[i]);
+    if ((unsigned char)str[i] < 0x80)
+      str[i] = tolower((unsigned char)str[i]);
 }
 
 const Uint32 SDL_RWOPS_PHYSFS = SDL_RWOPS_UNKNOWN + 10;
@@ -395,26 +393,23 @@ struct CacheEnumData {
   FileSystemPrivate *p;
   std::stack<std::vector<std::string> *> fileLists;
 
-#ifdef __APPLE__
   iconv_t nfd2nfc;
   char buf[512];
-#endif
 
   CacheEnumData(FileSystemPrivate *p) : p(p) {
-#ifdef __APPLE__
-    nfd2nfc = iconv_open("utf-8", "utf-8-mac");
-#endif
+    nfd2nfc = iconv_open("UTF-8", "UTF-8");
   }
 
   ~CacheEnumData() {
-#ifdef __APPLE__
-    iconv_close(nfd2nfc);
-#endif
+    if (nfd2nfc != (iconv_t)-1) {
+      iconv_close(nfd2nfc);
+    }
   }
 
   /* Converts in-place */
   void toNFC(char *inout) {
-#ifdef __APPLE__
+    if (nfd2nfc == (iconv_t)-1) return;
+
     size_t srcSize = strlen(inout);
     size_t bufSize = sizeof(buf);
     char *bufPtr = buf;
@@ -423,13 +418,11 @@ struct CacheEnumData {
     /* Reserve room for null terminator */
     --bufSize;
 
-    iconv(nfd2nfc, &inoutPtr, &srcSize, &bufPtr, &bufSize);
-    /* Null-terminate */
-    *bufPtr = 0;
-    strcpy(inout, buf);
-#else
-    (void)inout;
-#endif
+    if (iconv(nfd2nfc, &inoutPtr, &srcSize, &bufPtr, &bufSize) != (size_t)-1) {
+      /* Null-terminate */
+      *bufPtr = 0;
+      strcpy(inout, buf);
+    }
   }
 };
 
@@ -437,6 +430,14 @@ static PHYSFS_EnumerateCallbackResult cacheEnumCB(void *d, const char *origdir,
                                                   const char *fname) {
   CacheEnumData &data = *static_cast<CacheEnumData *>(d);
   char fullPath[512];
+
+static int pictureCount = 0;
+if (strcmp(origdir, "Graphics/Pictures") == 0 && pictureCount++ == 0) {
+    std::string hex;
+    for (unsigned char c : std::string(fname))
+    { char t[4]; snprintf(t,4,"%02x",c); hex+=t; }
+    Debug() << "first picture fname hex:" << hex.c_str();
+}
 
   if (!*origdir)
     snprintf(fullPath, sizeof(fullPath), "%s", fname);
@@ -447,15 +448,16 @@ static PHYSFS_EnumerateCallbackResult cacheEnumCB(void *d, const char *origdir,
   data.toNFC(fullPath);
 
   std::string mixedCase(fullPath);
-  std::string lowerCase = mixedCase;
-  strTolower(lowerCase);
 
   PHYSFS_Stat stat;
   PHYSFS_stat(fullPath, &stat);
 
   if (stat.filetype == PHYSFS_FILETYPE_DIRECTORY) {
+
+Debug() << "storing dir:" << mixedCase.c_str();
+
     /* Create a new list for this directory */
-    std::vector<std::string> &list = data.p->fileLists[lowerCase];
+    std::vector<std::string> &list = data.p->fileLists[mixedCase];
 
     /* Iterate over its contents */
     data.fileLists.push(&list);
@@ -467,11 +469,10 @@ static PHYSFS_EnumerateCallbackResult cacheEnumCB(void *d, const char *origdir,
     std::vector<std::string> &list = *data.fileLists.top();
 
     std::string lowerFilename(fname);
-    strTolower(lowerFilename);
     list.push_back(lowerFilename);
 
     /* Add the lower -> mixed mapping of the file's full path */
-    data.p->pathCache.insert(lowerCase, mixedCase);
+    data.p->pathCache.insert(mixedCase, mixedCase);
   }
 
   return PHYSFS_ENUM_OK;
@@ -598,8 +599,7 @@ openReadEnumCB(void *d, const char *dirpath, const char *filename) {
   if (data.stopSearching)
     return PHYSFS_ENUM_STOP;
 
-  /* If there's not even a partial match, continue searching */
-  if (strncmp(filename, data.filename, data.filenameN) != 0)
+  if (std::string(filename).find(data.filename) != 0)
     return PHYSFS_ENUM_OK;
 
   if (!*dirpath) {
@@ -609,27 +609,18 @@ openReadEnumCB(void *d, const char *dirpath, const char *filename) {
     fullPath = buffer;
   }
 
-  char last = filename[data.filenameN];
-  /* If fname matches up to a following '.' (meaning the rest is part
-   * of the extension), or up to a following '\0' (full match), we've
-   * found our file */
+  char last = filename[strlen(data.filename)];
   if (last != '.' && last != '\0')
     return PHYSFS_ENUM_OK;
 
-  /* If the path cache is active, translate from lower case
-   * to mixed case path */
   if (data.pathTrans)
     fullPath = (*data.pathTrans)[fullPath].c_str();
 
   PHYSFS_File *phys = PHYSFS_openRead(fullPath);
 
   if (!phys) {
-    /* Failing to open this file here means there must
-     * be a deeper rooted problem somewhere within PhysFS.
-     * Just abort alltogether. */
     data.stopSearching = true;
     data.physfsError = PHYSFS_getErrorByCode(PHYSFS_getLastErrorCode());
-
     return PHYSFS_ENUM_ERROR;
   }
   initReadOps(phys, data.ops, false);
@@ -644,14 +635,13 @@ openReadEnumCB(void *d, const char *dirpath, const char *filename) {
 }
 
 void FileSystem::openRead(OpenHandler &handler, const char *filename) {
+
   std::string filename_nm = normalize(filename, false, false);
   char buffer[512];
   size_t len = strcpySafe(buffer, filename_nm.c_str(), sizeof(buffer), -1);
   char *delim;
 
-  if (p->havePathCache)
-    for (size_t i = 0; i < len; ++i)
-      buffer[i] = tolower(buffer[i]);
+Debug() << "exists:" << (int)PHYSFS_exists(filename_nm.c_str());
 
   /* Find the deliminator separating directory and file name */
   for (delim = buffer + len; delim > buffer; --delim)
@@ -670,6 +660,23 @@ void FileSystem::openRead(OpenHandler &handler, const char *filename) {
     file = delim + 1;
     dir = buffer;
   }
+
+const std::vector<std::string> &fileList = p->fileLists[dir];
+
+Debug() << "fileList size:" << (int)p->fileLists[dir].size();
+
+Debug() << "dir:" << dir;
+
+std::string hex;
+for (unsigned char c : std::string(file))
+{ char t[4]; snprintf(t,sizeof(t),"%02x",c); hex+=t; }
+Debug() << "file hex:" << hex.c_str();
+
+std::string hex2;
+for (unsigned char c : fileList[0])
+{ char t[4]; snprintf(t,sizeof(t),"%02x",c); hex2+=t; }
+Debug() << "fileList[0] hex:" << hex2.c_str();
+
   OpenReadEnumData data(handler, file, len + buffer - delim - !root,
                         p->havePathCache ? &p->pathCache : 0);
 
