@@ -277,14 +277,28 @@ int main(int argc, char *argv[])
 	}
 
 	// Set and ensure current directory
-	if (!mkxp_fs::directoryExists(dataDir)) {
-		char buf[200];
-		snprintf(buf, sizeof(buf), "Failed to set current directory to %s", dataDir);
-		showInitError(std::string(buf));
-		SDL_Quit();
-		return 0;
-	}
-	mkxp_fs::setCurrentDirectory(dataDir);
+	std::string dataDirStr(dataDir);
+
+bool isZip = dataDirStr.size() >= 4 && dataDirStr.substr(dataDirStr.size() - 4) == ".zip";
+
+if (isZip) {
+    if (!mkxp_fs::fileExists(dataDir)) {
+        char buf[200];
+        snprintf(buf, sizeof(buf), "Failed to find zip file at %s", dataDir);
+        showInitError(std::string(buf));
+        SDL_Quit();
+        return 0;
+    }
+} else {
+    if (!mkxp_fs::directoryExists(dataDir)) {
+        char buf[200];
+        snprintf(buf, sizeof(buf), "Failed to set current directory to %s", dataDir);
+        showInitError(std::string(buf));
+        SDL_Quit();
+        return 0;
+    }
+    mkxp_fs::setCurrentDirectory(dataDir);
+}
 
 	env->ReleaseStringUTFChars(strJGamePath, dataDir);
 	env->DeleteLocalRef(strJGamePath);
@@ -294,6 +308,12 @@ int main(int argc, char *argv[])
 	// Load configuration
 	Config conf;
 	conf.read(argc, argv);
+
+#ifdef MKXPZ_BUILD_ANDROID
+if (isZip) {
+    conf.gameFolder = dataDirStr;
+}
+#endif
 
 #if defined(__WIN32__)
 	// Create a debug console in debug mode
@@ -321,7 +341,10 @@ int main(int argc, char *argv[])
 		conf.windowTitle = conf.game.title;
 
 	// Validate and print RGSS version
-	assert(conf.rgssVersion >= 1 && conf.rgssVersion <= 3);
+
+if (conf.rgssVersion == 0) conf.rgssVersion = 1;
+assert(conf.rgssVersion >= 1 && conf.rgssVersion <= 3);
+
 	printRgssVersion(conf.rgssVersion);
 
 	// Initialize SDL_image

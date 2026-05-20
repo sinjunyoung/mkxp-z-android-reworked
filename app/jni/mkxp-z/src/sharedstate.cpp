@@ -42,6 +42,8 @@
 #include <stdio.h>
 #include <string>
 #include <chrono>
+#include <physfs.h>
+#include <SDL_filesystem.h>
 
 SharedState *SharedState::instance = 0;
 int SharedState::rgssVersion = 0;
@@ -125,15 +127,73 @@ struct SharedStatePrivate
 
 		std::string archPath = config.execName + gameArchExt();
 
-		/* Check if a game archive exists */
-		FILE *tmp = fopen(archPath.c_str(), "rb");
-		if (tmp)
-		{
-			fileSystem.addPath(archPath.c_str());
-			fclose(tmp);
-		}
+/* Check if a game archive exists */
+FILE *tmp = fopen(archPath.c_str(), "rb");
+if (tmp)
+{
+    fileSystem.addPath(archPath.c_str());
+    fclose(tmp);
+}
 
-		fileSystem.addPath(".");
+/* Check if gameFolder is a zip file */
+if (!config.gameFolder.empty()) {
+    std::string &gf = config.gameFolder;
+    if (gf.size() >= 4 && gf.substr(gf.size() - 4) == ".zip") {
+        fileSystem.addPath(gf.c_str(), nullptr, false);
+
+        /* Read Game.ini from inside the ZIP via PhysFS */
+        std::string iniFileName = config.execName + ".ini";
+        PHYSFS_File *iniHandle = PHYSFS_openRead(iniFileName.c_str());
+        if (iniHandle) {
+            PHYSFS_sint64 size = PHYSFS_fileLength(iniHandle);
+            if (size > 0) {
+                std::string iniData(size, '\0');
+                PHYSFS_readBytes(iniHandle, &iniData[0], size);
+                PHYSFS_close(iniHandle);
+
+                auto getVal = [&](const std::string &key) -> std::string {
+                    size_t pos = iniData.find(key + "=");
+                    if (pos == std::string::npos) return "";
+                    pos += key.size() + 1;
+                    size_t end = iniData.find_first_of("\r\n", pos);
+                    return iniData.substr(pos, end - pos);
+                };
+
+                config.game.title   = getVal("Title");
+                config.game.scripts = getVal("Scripts");
+                for (char &c : config.game.scripts)
+                    if (c == '\\') c = '/';
+            } else {
+                PHYSFS_close(iniHandle);
+            }
+        }
+
+        if (config.game.title.empty())
+            config.game.title = "mkxp-z";
+        if (config.dataPathOrg.empty()) config.dataPathOrg = ".";
+        if (config.dataPathApp.empty()) config.dataPathApp = config.game.title;
+
+char *pp = SDL_GetPrefPath(config.dataPathOrg.c_str(), config.dataPathApp.c_str());
+if (pp) {
+    config.customDataPath = pp;
+    SDL_free(pp);
+}
+
+        if (config.rgssVersion == 0) {
+            config.rgssVersion = 1;
+            if (!config.game.scripts.empty()) {
+                const std::string &s = config.game.scripts;
+                if (s.size() > 7 && s.substr(s.size()-7) == ".rvdata")
+                    config.rgssVersion = 2;
+                else if (s.size() > 8 && s.substr(s.size()-8) == ".rvdata2")
+                    config.rgssVersion = 3;
+            }
+        }
+    }
+}
+
+
+fileSystem.addPath(".");
 
 		for (size_t i = 0; i < config.rtps.size(); ++i)
 			fileSystem.addPath(config.rtps[i].c_str());

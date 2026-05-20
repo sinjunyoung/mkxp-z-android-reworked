@@ -93,13 +93,18 @@ static SDL_RWops *getSDLRWops(PHYSFS_Io *io) {
   return static_cast<SDLRWIoContext *>(io->opaque)->ops;
 }
 
-static PHYSFS_sint64 SDLRWIoRead(struct PHYSFS_Io *io, void *buf,
-                                 PHYSFS_uint64 len) {
-  return SDL_RWread(getSDLRWops(io), buf, 1, len);
+static PHYSFS_sint64 SDLRWIoRead(struct PHYSFS_Io *io, void *buf, PHYSFS_uint64 len) {
+    size_t result = SDL_RWread(getSDLRWops(io), buf, 1, len);
+    if (result == 0 && SDL_GetError()[0] != '\0') {
+        return -1; // 실제 에러
+    }
+    return (PHYSFS_sint64) result;
 }
 
 static int SDLRWIoSeek(struct PHYSFS_Io *io, PHYSFS_uint64 offset) {
-  return (SDL_RWseek(getSDLRWops(io), offset, RW_SEEK_SET) != -1);
+    Sint64 result = SDL_RWseek(getSDLRWops(io), offset, RW_SEEK_SET);
+    Debug() << "SDLRWIoSeek offset:" << offset << "result:" << result;
+    return (result >= 0);
 }
 
 static PHYSFS_sint64 SDLRWIoTell(struct PHYSFS_Io *io) {
@@ -107,7 +112,9 @@ static PHYSFS_sint64 SDLRWIoTell(struct PHYSFS_Io *io) {
 }
 
 static PHYSFS_sint64 SDLRWIoLength(struct PHYSFS_Io *io) {
-  return SDL_RWsize(getSDLRWops(io));
+    PHYSFS_sint64 result = SDL_RWsize(getSDLRWops(io));
+    Debug() << "SDLRWIoLength result:" << result;
+    return result;
 }
 
 static struct PHYSFS_Io *SDLRWIoDuplicate(struct PHYSFS_Io *io) {
@@ -326,6 +333,10 @@ FileSystem::FileSystem(const char *argv0, bool allowSymlinks)
 
 	if (PHYSFS_init((char *)&ainit) == 0)
 		throwPhysfsError("Error initializing PhysFS");
+
+// Set write dir to external storage
+PHYSFS_setWriteDir("/storage/emulated/0");
+
 #else
 	if (PHYSFS_init(argv0) == 0)
 		throwPhysfsError("Error initializing PhysFS");
@@ -357,21 +368,16 @@ FileSystem::~FileSystem()
 }
 
 void FileSystem::addPath(const char *path, const char *mountpoint, bool reload) {
-  /* Try the normal mount first */
     int state = PHYSFS_mount(path, mountpoint, 1);
-  if (!state) {
-    /* If it didn't work, try mounting via a wrapped
-     * SDL_RWops */
-    PHYSFS_Io *io = createSDLRWIo(path);
-
-    if (io)
-      state = PHYSFS_mountIo(io, path, 0, 1);
-  }
+    if (!state) {
+        PHYSFS_Io *io = createSDLRWIo(path);
+        if (io)
+            state = PHYSFS_mountIo(io, path, mountpoint, 1);
+    }
     if (!state) {
         PHYSFS_ErrorCode err = PHYSFS_getLastErrorCode();
         throw Exception(Exception::PHYSFSError, "Failed to mount %s (%s)", path, PHYSFS_getErrorByCode(err));
     }
-    
     if (reload) reloadPathCache();
 }
 

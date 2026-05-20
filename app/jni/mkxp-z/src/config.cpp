@@ -236,11 +236,21 @@ try { exp } catch (...) {}
     SET_OPT(defScreenH, integer);
     
     // Take a break real quick and witch to set game folder and read the game's ini
-    if (!gameFolder.empty() && !mkxp_fs::setCurrentDirectory(gameFolder.c_str())) {
+if (!gameFolder.empty()) {
+    bool isZip = gameFolder.size() >= 4 && gameFolder.substr(gameFolder.size() - 4) == ".zip";
+    if (!isZip && !mkxp_fs::setCurrentDirectory(gameFolder.c_str())) {
         throw Exception(Exception::MKXPError, "Unable to switch into gameFolder %s", gameFolder.c_str());
     }
+}
     
+bool isZip = !gameFolder.empty() && gameFolder.size() >= 4 && gameFolder.substr(gameFolder.size() - 4) == ".zip";
+if (!isZip) {
     readGameINI();
+} else {
+    if (dataPathOrg.empty()) dataPathOrg = ".";
+    if (dataPathApp.empty()) dataPathApp = "mkxp-z";
+    customDataPath = prefPath(dataPathOrg.c_str(), dataPathApp.c_str());
+}
     
     // Now check for an extra mkxp.conf in the user's save directory and merge anything else from that
     userConfPath = customDataPath + "/" CONF_FILE;
